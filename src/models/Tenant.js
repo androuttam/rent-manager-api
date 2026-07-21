@@ -24,6 +24,14 @@ const referenceSchema = new mongoose.Schema(
 
 const tenantSchema = new mongoose.Schema(
   {
+    // Owner who created/owns this tenant
+    ownerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
+
     // Mandatory core fields
     name: { type: String, required: true, trim: true },
     mobile: { type: String, required: true, trim: true },

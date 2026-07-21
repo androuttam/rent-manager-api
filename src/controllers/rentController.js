@@ -1,4 +1,4 @@
-// Rent payment CRUD
+// Rent payment CRUD (scoped to the logged-in owner)
 const RentPayment = require("../models/RentPayment");
 const Tenant = require("../models/Tenant");
 
@@ -12,11 +12,13 @@ const createRent = async (req, res) => {
         message: "tenantId, amount, mode, forMonth and forYear are required",
       });
     }
-    const tenant = await Tenant.findById(tenantId);
+    // Tenant must belong to this owner
+    const tenant = await Tenant.findOne({ _id: tenantId, ownerId: req.user._id });
     if (!tenant) {
       return res.status(404).json({ success: false, message: "Tenant not found" });
     }
     const payment = await RentPayment.create({
+      ownerId: req.user._id,
       tenantId,
       flatId: tenant.flatId || null,
       amount,
@@ -35,7 +37,7 @@ const createRent = async (req, res) => {
 // @route GET /api/rent  (owner)  filters: ?tenantId= &month= &year=
 const getRents = async (req, res) => {
   try {
-    const filter = {};
+    const filter = { ownerId: req.user._id };
     if (req.query.tenantId) filter.tenantId = req.query.tenantId;
     if (req.query.month) filter.forMonth = Number(req.query.month);
     if (req.query.year) filter.forYear = Number(req.query.year);
@@ -52,8 +54,8 @@ const getRents = async (req, res) => {
 const updateRent = async (req, res) => {
   try {
     const { amount, mode, forMonth, forYear, paidDate, note } = req.body;
-    const payment = await RentPayment.findByIdAndUpdate(
-      req.params.id,
+    const payment = await RentPayment.findOneAndUpdate(
+      { _id: req.params.id, ownerId: req.user._id },
       { amount, mode, forMonth, forYear, paidDate, note },
       { new: true, runValidators: true }
     );
@@ -69,7 +71,10 @@ const updateRent = async (req, res) => {
 // @route DELETE /api/rent/:id  (owner)
 const deleteRent = async (req, res) => {
   try {
-    const payment = await RentPayment.findByIdAndDelete(req.params.id);
+    const payment = await RentPayment.findOneAndDelete({
+      _id: req.params.id,
+      ownerId: req.user._id,
+    });
     if (!payment) {
       return res.status(404).json({ success: false, message: "Payment not found" });
     }

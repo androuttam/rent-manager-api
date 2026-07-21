@@ -4,6 +4,13 @@ const mongoose = require("mongoose");
 
 const expenseSchema = new mongoose.Schema(
   {
+    // Owner who owns this record
+    ownerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
     // Optional: expense on a specific tenant / flat, else it's a general expense
     tenantId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -27,6 +34,6 @@ const expenseSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-expenseSchema.index({ tenantId: 1, date: -1 });
+expenseSchema.index({ ownerId: 1, tenantId: 1, date: -1 });
 
 module.exports = mongoose.model("Expense", expenseSchema);

@@ -3,6 +3,13 @@ const mongoose = require("mongoose");
 
 const documentSchema = new mongoose.Schema(
   {
+    // Owner who owns this record
+    ownerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
     tenantId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Tenant",
@@ -21,6 +28,7 @@ const documentSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-documentSchema.index({ tenantId: 1 });
+// Most queries are "this owner's docs for this tenant"
+documentSchema.index({ ownerId: 1, tenantId: 1 });
 
 module.exports = mongoose.model("Document", documentSchema);

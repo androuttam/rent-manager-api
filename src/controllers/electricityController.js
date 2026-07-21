@@ -1,4 +1,4 @@
-// Electricity bill CRUD.
+// Electricity bill CRUD (scoped to the logged-in owner).
 // status "paid"   -> tenant paid billAmount
 // status "waived" -> owner waived; waivedAmount auto = unitsUsed * ratePerUnit
 const ElectricityBill = require("../models/ElectricityBill");
@@ -31,7 +31,8 @@ const createBill = async (req, res) => {
         message: "tenantId, forMonth and forYear are required",
       });
     }
-    const tenant = await Tenant.findById(tenantId);
+    // Tenant must belong to this owner
+    const tenant = await Tenant.findOne({ _id: tenantId, ownerId: req.user._id });
     if (!tenant) {
       return res.status(404).json({ success: false, message: "Tenant not found" });
     }
@@ -40,6 +41,7 @@ const createBill = async (req, res) => {
     const amounts = buildAmounts(st, unitsUsed, ratePerUnit, billAmount);
 
     const bill = await ElectricityBill.create({
+      ownerId: req.user._id,
       tenantId,
       flatId: tenant.flatId || null,
       forMonth,
@@ -62,7 +64,7 @@ const createBill = async (req, res) => {
 // @route GET /api/electricity  (owner)  filters: ?tenantId= &year= &month=
 const getBills = async (req, res) => {
   try {
-    const filter = {};
+    const filter = { ownerId: req.user._id };
     if (req.query.tenantId) filter.tenantId = req.query.tenantId;
     if (req.query.year) filter.forYear = Number(req.query.year);
     if (req.query.month) filter.forMonth = Number(req.query.month);
@@ -83,7 +85,10 @@ const updateBill = async (req, res) => {
       billAmount, status, mode, paidDate, note,
     } = req.body;
 
-    const bill = await ElectricityBill.findById(req.params.id);
+    const bill = await ElectricityBill.findOne({
+      _id: req.params.id,
+      ownerId: req.user._id,
+    });
     if (!bill) {
       return res.status(404).json({ success: false, message: "Bill not found" });
     }
@@ -115,7 +120,10 @@ const updateBill = async (req, res) => {
 // @route DELETE /api/electricity/:id  (owner)
 const deleteBill = async (req, res) => {
   try {
-    const bill = await ElectricityBill.findByIdAndDelete(req.params.id);
+    const bill = await ElectricityBill.findOneAndDelete({
+      _id: req.params.id,
+      ownerId: req.user._id,
+    });
     if (!bill) {
       return res.status(404).json({ success: false, message: "Bill not found" });
     }

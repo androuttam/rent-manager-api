@@ -1,4 +1,5 @@
 // Dashboard summaries, tenant-wise totals and full tenant reports
+// Every query is scoped to the logged-in owner (req.user._id)
 const mongoose = require("mongoose");
 const Tenant = require("../models/Tenant");
 const RentPayment = require("../models/RentPayment");
@@ -25,11 +26,12 @@ const periodFilter = (query) => {
 // @route GET /api/dashboard/summary  (owner)  optional: ?year= &month=
 const getSummary = async (req, res) => {
   try {
+    const ownerId = req.user._id;
     const pf = periodFilter(req.query);
 
-    // ----- Rent income split by mode -----
+    // ----- Rent income split by mode (owner-scoped) -----
     const incomeAgg = await RentPayment.aggregate([
-      { $match: pf },
+      { $match: { ownerId, ...pf } },
       { $group: { _id: "$mode", total: { $sum: "$amount" } } },
     ]);
     let cash = 0, transfer = 0;
@@ -40,7 +42,7 @@ const getSummary = async (req, res) => {
     const totalIncome = cash + transfer;
 
     // ----- Expenses (filter by date range if year/month given) -----
-    const expMatch = {};
+    const expMatch = { ownerId };
     if (req.query.year && req.query.month) {
       const y = Number(req.query.year), m = Number(req.query.month);
       expMatch.date = { $gte: new Date(y, m - 1, 1), $lt: new Date(y, m, 1) };
@@ -54,9 +56,9 @@ const getSummary = async (req, res) => {
     ]);
     const totalInvestment = expAgg[0] ? expAgg[0].total : 0;
 
-    // ----- Electricity: collection (paid) + waived -----
+    // ----- Electricity: collection (paid) + waived (owner-scoped) -----
     const elecAgg = await ElectricityBill.aggregate([
-      { $match: pf },
+      { $match: { ownerId, ...pf } },
       {
         $group: {
           _id: null,
@@ -72,11 +74,13 @@ const getSummary = async (req, res) => {
     const electricityCollection = elecAgg[0] ? elecAgg[0].collection : 0;
     const electricityWaived = elecAgg[0] ? elecAgg[0].waived : 0;
 
-    // ----- Pending rent (all-time, active tenants only) -----
-    const activeTenants = await Tenant.find({ status: "active" }).select(
-      "agreedRent moveInDate"
-    );
+    // ----- Pending rent (all-time, this owner's active tenants only) -----
+    const activeTenants = await Tenant.find({
+      ownerId,
+      status: "active",
+    }).select("agreedRent moveInDate");
     const paidAgg = await RentPayment.aggregate([
+      { $match: { ownerId } },
       { $group: { _id: "$tenantId", paid: { $sum: "$amount" } } },
     ]);
     const paidMap = {};
@@ -113,23 +117,25 @@ const getSummary = async (req, res) => {
 // Tenant list enriched with live totals (for the tenant list rows)
 const getTenantsWithTotals = async (req, res) => {
   try {
-    const filter = { status: { $ne: "deleted" } };
+    const ownerId = req.user._id;
+    const filter = { ownerId, status: { $ne: "deleted" } };
     if (req.query.status) filter.status = req.query.status;
     const tenants = await Tenant.find(filter)
       .populate("flatId", "flatNumber")
       .sort({ createdAt: -1 })
       .lean();
 
-    // Aggregate totals per tenant
+    // Aggregate totals per tenant (owner-scoped)
     const rentAgg = await RentPayment.aggregate([
+      { $match: { ownerId } },
       { $group: { _id: "$tenantId", total: { $sum: "$amount" } } },
     ]);
     const billAgg = await ElectricityBill.aggregate([
-      { $match: { status: "paid" } },
+      { $match: { ownerId, status: "paid" } },
       { $group: { _id: "$tenantId", total: { $sum: "$billAmount" } } },
     ]);
     const expAgg = await Expense.aggregate([
-      { $match: { tenantId: { $ne: null } } },
+      { $match: { ownerId, tenantId: { $ne: null } } },
       { $group: { _id: "$tenantId", total: { $sum: "$amount" } } },
     ]);
 
@@ -165,19 +171,22 @@ const getTenantsWithTotals = async (req, res) => {
   }
 };
 
-// Shared: build a full report object for one tenant id
-const buildTenantReport = async (tenantId) => {
-  const tenant = await Tenant.findById(tenantId).populate(
+// Shared: build a full report object for one tenant id.
+// If ownerId is passed, the tenant + all sub-records are restricted to that owner.
+const buildTenantReport = async (tenantId, ownerId = null) => {
+  const ownerScope = ownerId ? { ownerId } : {};
+
+  const tenant = await Tenant.findOne({ _id: tenantId, ...ownerScope }).populate(
     "flatId",
     "flatNumber floor rentAmount"
   );
   if (!tenant) return null;
 
   const [rentHistory, billHistory, expenses, documents] = await Promise.all([
-    RentPayment.find({ tenantId }).sort({ forYear: -1, forMonth: -1 }),
-    ElectricityBill.find({ tenantId }).sort({ forYear: -1, forMonth: -1 }),
-    Expense.find({ tenantId }).sort({ date: -1 }),
-    Document.find({ tenantId }).sort({ uploadedAt: -1 }),
+    RentPayment.find({ tenantId, ...ownerScope }).sort({ forYear: -1, forMonth: -1 }),
+    ElectricityBill.find({ tenantId, ...ownerScope }).sort({ forYear: -1, forMonth: -1 }),
+    Expense.find({ tenantId, ...ownerScope }).sort({ date: -1 }),
+    Document.find({ tenantId, ...ownerScope }).sort({ uploadedAt: -1 }),
   ]);
 
   const totalRentPaid = rentHistory.reduce((s, r) => s + r.amount, 0);
@@ -207,7 +216,8 @@ const buildTenantReport = async (tenantId) => {
 // @route GET /api/dashboard/tenant/:id  (owner)
 const getTenantReport = async (req, res) => {
   try {
-    const report = await buildTenantReport(req.params.id);
+    // Restrict to this owner's tenant only
+    const report = await buildTenantReport(req.params.id, req.user._id);
     if (!report) {
       return res.status(404).json({ success: false, message: "Tenant not found" });
     }
@@ -218,7 +228,7 @@ const getTenantReport = async (req, res) => {
 };
 
 // @route GET /api/dashboard/my-report  (tenant login only)
-// A tenant sees only their own brief report
+// A tenant sees only their own brief report (scoped by their own tenantId)
 const getMyReport = async (req, res) => {
   try {
     if (!req.user.tenantId) {
@@ -241,11 +251,13 @@ const getMyReport = async (req, res) => {
 // Active tenants who currently owe rent — shown on dashboard when app opens
 const getReminders = async (req, res) => {
   try {
-    const activeTenants = await Tenant.find({ status: "active" })
+    const ownerId = req.user._id;
+    const activeTenants = await Tenant.find({ ownerId, status: "active" })
       .populate("flatId", "flatNumber")
       .select("name mobile agreedRent moveInDate flatId");
 
     const paidAgg = await RentPayment.aggregate([
+      { $match: { ownerId } },
       { $group: { _id: "$tenantId", paid: { $sum: "$amount" } } },
     ]);
     const paidMap = {};

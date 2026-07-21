@@ -1,5 +1,6 @@
-// File upload + tenant document records
+// File upload + tenant document records (scoped to the logged-in owner)
 const Document = require("../models/Document");
+const Tenant = require("../models/Tenant");
 const cloudinary = require("../config/cloudinary");
 
 // Stream an in-memory file buffer to Cloudinary and resolve with the result
@@ -44,7 +45,19 @@ const createDocument = async (req, res) => {
         .status(400)
         .json({ success: false, message: "tenantId and fileUrl are required" });
     }
-    const doc = await Document.create({ tenantId, docType, title, fileUrl, publicId });
+    // Tenant must belong to this owner
+    const tenant = await Tenant.findOne({ _id: tenantId, ownerId: req.user._id });
+    if (!tenant) {
+      return res.status(404).json({ success: false, message: "Tenant not found" });
+    }
+    const doc = await Document.create({
+      ownerId: req.user._id,
+      tenantId,
+      docType,
+      title,
+      fileUrl,
+      publicId,
+    });
     return res.status(201).json({ success: true, document: doc });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
@@ -54,7 +67,7 @@ const createDocument = async (req, res) => {
 // @route GET /api/documents?tenantId=  (owner)
 const getDocuments = async (req, res) => {
   try {
-    const filter = {};
+    const filter = { ownerId: req.user._id };
     if (req.query.tenantId) filter.tenantId = req.query.tenantId;
     const documents = await Document.find(filter).sort({ uploadedAt: -1 });
     return res.json({ success: true, count: documents.length, documents });
@@ -67,7 +80,10 @@ const getDocuments = async (req, res) => {
 // Removes the file from Cloudinary and the record from DB
 const deleteDocument = async (req, res) => {
   try {
-    const doc = await Document.findById(req.params.id);
+    const doc = await Document.findOne({
+      _id: req.params.id,
+      ownerId: req.user._id,
+    });
     if (!doc) {
       return res.status(404).json({ success: false, message: "Document not found" });
     }

@@ -3,6 +3,13 @@ const mongoose = require("mongoose");
 
 const rentPaymentSchema = new mongoose.Schema(
   {
+    // Owner who owns this record
+    ownerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
     tenantId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Tenant",
@@ -28,7 +35,7 @@ const rentPaymentSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Speeds up tenant-wise and month-wise reports
-rentPaymentSchema.index({ tenantId: 1, forYear: 1, forMonth: 1 });
+// Speeds up owner-wise, tenant-wise and month-wise reports
+rentPaymentSchema.index({ ownerId: 1, tenantId: 1, forYear: 1, forMonth: 1 });
 
 module.exports = mongoose.model("RentPayment", rentPaymentSchema);

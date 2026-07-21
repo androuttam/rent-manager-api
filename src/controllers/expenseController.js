@@ -1,5 +1,6 @@
-// Expense (owner investment/spending) CRUD
+// Expense (owner investment/spending) CRUD (scoped to the logged-in owner)
 const Expense = require("../models/Expense");
+const Tenant = require("../models/Tenant");
 
 // @route POST /api/expenses  (owner)
 const createExpense = async (req, res) => {
@@ -8,7 +9,15 @@ const createExpense = async (req, res) => {
     if (!amount) {
       return res.status(400).json({ success: false, message: "amount is required" });
     }
+    // If tied to a tenant, that tenant must belong to this owner
+    if (tenantId) {
+      const tenant = await Tenant.findOne({ _id: tenantId, ownerId: req.user._id });
+      if (!tenant) {
+        return res.status(404).json({ success: false, message: "Tenant not found" });
+      }
+    }
     const expense = await Expense.create({
+      ownerId: req.user._id,
       tenantId: tenantId || null,
       flatId: flatId || null,
       category,
@@ -25,7 +34,7 @@ const createExpense = async (req, res) => {
 // @route GET /api/expenses  (owner)  filters: ?tenantId= &year= &month=
 const getExpenses = async (req, res) => {
   try {
-    const filter = {};
+    const filter = { ownerId: req.user._id };
     if (req.query.tenantId) filter.tenantId = req.query.tenantId;
     if (req.query.year || req.query.month) {
       const y = req.query.year ? Number(req.query.year) : null;
@@ -50,8 +59,15 @@ const getExpenses = async (req, res) => {
 const updateExpense = async (req, res) => {
   try {
     const { tenantId, flatId, category, amount, date, description } = req.body;
-    const expense = await Expense.findByIdAndUpdate(
-      req.params.id,
+    // If re-tagging to a tenant, that tenant must belong to this owner
+    if (tenantId) {
+      const tenant = await Tenant.findOne({ _id: tenantId, ownerId: req.user._id });
+      if (!tenant) {
+        return res.status(404).json({ success: false, message: "Tenant not found" });
+      }
+    }
+    const expense = await Expense.findOneAndUpdate(
+      { _id: req.params.id, ownerId: req.user._id },
       { tenantId, flatId, category, amount, date, description },
       { new: true, runValidators: true }
     );
@@ -67,7 +83,10 @@ const updateExpense = async (req, res) => {
 // @route DELETE /api/expenses/:id  (owner)
 const deleteExpense = async (req, res) => {
   try {
-    const expense = await Expense.findByIdAndDelete(req.params.id);
+    const expense = await Expense.findOneAndDelete({
+      _id: req.params.id,
+      ownerId: req.user._id,
+    });
     if (!expense) {
       return res.status(404).json({ success: false, message: "Expense not found" });
     }

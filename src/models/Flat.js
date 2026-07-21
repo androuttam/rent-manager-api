@@ -3,6 +3,13 @@ const mongoose = require("mongoose");
 
 const flatSchema = new mongoose.Schema(
   {
+    // Owner who created/owns this flat
+    ownerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
     flatNumber: { type: String, required: true, trim: true },
     floor: { type: String, trim: true },
     // Default rent for this flat (tenant may have an agreed rent that differs)

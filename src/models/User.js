@@ -16,6 +16,14 @@ const userSchema = new mongoose.Schema(
       enum: ["hi", "en"],
       default: "en",
     },
+    // Which owner this account belongs to.
+    // Owners have no parent owner (null); tenant logins are linked to their owner.
+    ownerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      index: true,
+    },
     // Linked tenant record when role is "tenant"
     tenantId: {
       type: mongoose.Schema.Types.ObjectId,

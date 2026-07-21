@@ -5,6 +5,13 @@ const mongoose = require("mongoose");
 
 const electricityBillSchema = new mongoose.Schema(
   {
+    // Owner who owns this record
+    ownerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
     tenantId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Tenant",
@@ -39,6 +46,6 @@ const electricityBillSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-electricityBillSchema.index({ tenantId: 1, forYear: 1, forMonth: 1 });
+electricityBillSchema.index({ ownerId: 1, tenantId: 1, forYear: 1, forMonth: 1 });
 
 module.exports = mongoose.model("ElectricityBill", electricityBillSchema);
