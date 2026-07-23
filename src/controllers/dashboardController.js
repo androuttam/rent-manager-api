@@ -7,6 +7,7 @@ const Expense = require("../models/Expense");
 const ElectricityBill = require("../models/ElectricityBill");
 const Document = require("../models/Document");
 
+
 // Count inclusive months between a start date and now (min 0)
 const monthsElapsed = (start) => {
   const now = new Date();
@@ -249,41 +250,60 @@ const getMyReport = async (req, res) => {
 
 // @route GET /api/dashboard/reminders  (owner)
 // Active tenants who currently owe rent — shown on dashboard when app opens
-const getReminders = async (req, res) => {
+
+
+// @desc    Reminders: pending rent tenants + pending electricity bills
+// @route   GET /api/dashboard/reminders
+// @access  Owner
+exports.getReminders = async (req, res) => {
   try {
     const ownerId = req.user._id;
-    const activeTenants = await Tenant.find({ ownerId, status: "active" })
-      .populate("flatId", "flatNumber")
-      .select("name mobile agreedRent moveInDate flatId");
 
-    const paidAgg = await RentPayment.aggregate([
-      { $match: { ownerId } },
-      { $group: { _id: "$tenantId", paid: { $sum: "$amount" } } },
-    ]);
-    const paidMap = {};
-    paidAgg.forEach((p) => { paidMap[p._id.toString()] = p.paid; });
+    // ---------- 1. Pending rent (existing logic) ----------
+    const tenants = await Tenant.find({ owner: ownerId, status: 'active' });
+    const pendingRentTenants = [];
 
-    const reminders = [];
-    activeTenants.forEach((t) => {
-      if (!t.moveInDate || !t.agreedRent) return;
-      const expected = monthsElapsed(t.moveInDate) * t.agreedRent;
-      const paid = paidMap[t._id.toString()] || 0;
-      const pending = expected - paid;
-      if (pending > 0) {
-        reminders.push({
-          tenantId: t._id,
+    for (const t of tenants) {
+      const payments = await RentPayment.find({ owner: ownerId, tenantId: t._id });
+      const paid = payments.reduce((s, p) => s + p.amount, 0);
+
+      const now = new Date();
+      const moveIn = new Date(t.moveInDate);
+      let months =
+        (now.getFullYear() - moveIn.getFullYear()) * 12 +
+        (now.getMonth() - moveIn.getMonth()) + 1;
+      if (months < 0) months = 0;
+
+      const due = Math.max(months * t.agreedRent - paid, 0);
+      if (due > 0) {
+        pendingRentTenants.push({
+          _id: t._id,
           name: t.name,
           mobile: t.mobile,
-          flatNumber: t.flatId ? t.flatId.flatNumber : null,
-          pendingAmount: pending,
+          pendingRent: due,
         });
       }
-    });
+    }
 
-    reminders.sort((a, b) => b.pendingAmount - a.pendingAmount);
-    return res.json({ success: true, count: reminders.length, reminders });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
+    // ---------- 2. Pending electricity bills (NEW) ----------
+    const pendingBills = await ElectricityBill.find({
+      owner: ownerId,
+      status: 'pending',
+    })
+      .populate('tenantId', 'name mobile')
+      .sort({ billDate: -1 });
+
+    const pendingBillTotal = pendingBills.reduce((s, b) => s + b.amount, 0);
+    const pendingRentTotal = pendingRentTenants.reduce((s, t) => s + t.pendingRent, 0);
+
+    res.json({
+      pendingRentTenants,
+      pendingRentTotal,
+      pendingBills,
+      pendingBillTotal,
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 };
 
