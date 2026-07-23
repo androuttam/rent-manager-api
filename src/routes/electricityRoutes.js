@@ -6,7 +6,9 @@ const ctrl = require("../controllers/electricityController");
 
 router.use(protect);
 
+// Fixed paths must come before /:id, otherwise Express treats them as an id
 router.get("/pending", ownerOnly, ctrl.getPendingBills);
+router.get("/last", ownerOnly, ctrl.getLastBill);
 
 router
   .route("/")

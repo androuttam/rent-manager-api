@@ -1,72 +1,59 @@
-const ElectricityBill = require('../models/ElectricityBill');
-const Tenant = require('../models/Tenant');
+const ElectricityBill = require("../models/ElectricityBill");
 
-// Helper: make sure the bill belongs to the logged-in owner
-const findOwnedBill = async (id, ownerId) => {
-  const bill = await ElectricityBill.findOne({ _id: id, owner: ownerId });
-  return bill;
-};
-
-// @desc    Create electricity bill
-// @route   POST /api/electricity
-// @access  Owner
+// Create a new electricity bill
 exports.createBill = async (req, res) => {
   try {
     const {
-      tenantId,
-      flatId,
-      billDate,
-      forMonth,
-      forYear,
+      tenant,
+      flat,
       startUnit,
       endUnit,
       ratePerUnit,
-      status,
-      remarks,
-    } = req.body;
-
-    const tenant = await Tenant.findOne({ _id: tenantId, owner: req.user._id });
-    if (!tenant) {
-      return res.status(404).json({ message: 'Tenant not found' });
-    }
-
-    const bill = new ElectricityBill({
-      owner: req.user._id,
-      tenantId,
-      flatId: flatId || tenant.flatId,
-      billDate: billDate || Date.now(),
       forMonth,
       forYear,
+      status,
+      note,
+    } = req.body;
+
+    if (startUnit == null || endUnit == null) {
+      return res
+        .status(400)
+        .json({ message: "Start unit and end unit are required" });
+    }
+
+    const bill = await ElectricityBill.create({
+      owner: req.user._id,
+      tenant,
+      flat,
       startUnit: Number(startUnit),
       endUnit: Number(endUnit),
       ratePerUnit: Number(ratePerUnit),
-      status: status || 'pending',
-      remarks,
+      forMonth: Number(forMonth),
+      forYear: Number(forYear),
+      status: status || "pending",
+      note,
     });
 
-    await bill.save();
-    res.status(201).json(bill);
+    const populated = await bill.populate("tenant", "name mobile");
+    res.status(201).json(populated);
   } catch (err) {
     res.status(400).json({ message: err.message });
   }
 };
 
-// @desc    List bills (optional filters)
-// @route   GET /api/electricity?tenantId=&status=&year=&month=
-// @access  Owner
+// List bills (optional filters: tenant, status, month, year)
 exports.getBills = async (req, res) => {
   try {
-    const { tenantId, status, year, month } = req.query;
     const filter = { owner: req.user._id };
 
-    if (tenantId) filter.tenantId = tenantId;
-    if (status) filter.status = status;
-    if (year) filter.forYear = Number(year);
-    if (month) filter.forMonth = Number(month);
+    if (req.query.tenant) filter.tenant = req.query.tenant;
+    if (req.query.status) filter.status = req.query.status;
+    if (req.query.month) filter.forMonth = Number(req.query.month);
+    if (req.query.year) filter.forYear = Number(req.query.year);
 
     const bills = await ElectricityBill.find(filter)
-      .populate('tenantId', 'name mobile')
-      .sort({ billDate: -1 });
+      .populate("tenant", "name mobile")
+      .sort({ forYear: -1, forMonth: -1, createdAt: -1 });
 
     res.json(bills);
   } catch (err) {
@@ -74,92 +61,165 @@ exports.getBills = async (req, res) => {
   }
 };
 
-// @desc    Get last bill of a tenant (to prefill start unit)
-// @route   GET /api/electricity/last/:tenantId
-// @access  Owner
-exports.getLastBill = async (req, res) => {
+// Get one bill
+exports.getBillById = async (req, res) => {
   try {
     const bill = await ElectricityBill.findOne({
+      _id: req.params.id,
       owner: req.user._id,
-      tenantId: req.params.tenantId,
-    }).sort({ billDate: -1, createdAt: -1 });
+    }).populate("tenant", "name mobile");
 
-    if (!bill) {
-      return res.json({ lastEndUnit: 0, lastRatePerUnit: 0 });
-    }
-
-    res.json({
-      lastEndUnit: bill.endUnit,
-      lastRatePerUnit: bill.ratePerUnit,
-      lastBillDate: bill.billDate,
-    });
+    if (!bill) return res.status(404).json({ message: "Bill not found" });
+    res.json(bill);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-// @desc    Update a bill (units, rate, date, status)
-// @route   PUT /api/electricity/:id
-// @access  Owner
+// Update a bill (used by the edit option in reminders)
 exports.updateBill = async (req, res) => {
   try {
-    const bill = await findOwnedBill(req.params.id, req.user._id);
-    if (!bill) return res.status(404).json({ message: 'Bill not found' });
+    const bill = await ElectricityBill.findOne({
+      _id: req.params.id,
+      owner: req.user._id,
+    });
+
+    if (!bill) return res.status(404).json({ message: "Bill not found" });
 
     const fields = [
-      'billDate',
-      'forMonth',
-      'forYear',
-      'startUnit',
-      'endUnit',
-      'ratePerUnit',
-      'status',
-      'remarks',
-      'flatId',
+      "tenant",
+      "flat",
+      "startUnit",
+      "endUnit",
+      "ratePerUnit",
+      "forMonth",
+      "forYear",
+      "status",
+      "note",
     ];
 
     fields.forEach((f) => {
       if (req.body[f] !== undefined) bill[f] = req.body[f];
     });
 
-    await bill.save(); // triggers recalculation of unitsUsed + amount
-    res.json(bill);
-  } catch (err) {
-    res.status(400).json({ message: err.message });
-  }
-};
-
-// @desc    Change only the status (used from reminders screen)
-// @route   PATCH /api/electricity/:id/status
-// @access  Owner
-exports.updateBillStatus = async (req, res) => {
-  try {
-    const { status } = req.body;
-    if (!['paid', 'waived', 'pending'].includes(status)) {
-      return res.status(400).json({ message: 'Invalid status' });
+    if (bill.status === "paid" && !bill.paidOn) {
+      bill.paidOn = new Date();
+    }
+    if (bill.status !== "paid") {
+      bill.paidOn = undefined;
     }
 
-    const bill = await findOwnedBill(req.params.id, req.user._id);
-    if (!bill) return res.status(404).json({ message: 'Bill not found' });
-
-    bill.status = status;
+    // pre-validate hook recalculates unitsUsed, amount, waivedAmount
     await bill.save();
+
+    const populated = await bill.populate("tenant", "name mobile");
+    res.json(populated);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+};
+
+// Change only the status
+exports.updateBillStatus = async (req, res) => {
+  try {
+    const bill = await ElectricityBill.findOne({
+      _id: req.params.id,
+      owner: req.user._id,
+    });
+
+    if (!bill) return res.status(404).json({ message: "Bill not found" });
+
+    bill.status = req.body.status;
+    bill.paidOn = req.body.status === "paid" ? new Date() : undefined;
+    await bill.save();
+
     res.json(bill);
   } catch (err) {
     res.status(400).json({ message: err.message });
   }
 };
 
-// @desc    Delete a bill
-// @route   DELETE /api/electricity/:id
-// @access  Owner
+// Pending bills — feeds the reminders section
+exports.getPendingBills = async (req, res) => {
+  try {
+    const bills = await ElectricityBill.find({
+      owner: req.user._id,
+      status: "pending",
+    })
+      .populate("tenant", "name mobile")
+      .sort({ forYear: -1, forMonth: -1 });
+
+    res.json(bills);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
 exports.deleteBill = async (req, res) => {
   try {
-    const bill = await findOwnedBill(req.params.id, req.user._id);
-    if (!bill) return res.status(404).json({ message: 'Bill not found' });
+    const bill = await ElectricityBill.findOneAndDelete({
+      _id: req.params.id,
+      owner: req.user._id,
+    });
 
-    await bill.deleteOne();
-    res.json({ message: 'Bill deleted' });
+    if (!bill) return res.status(404).json({ message: "Bill not found" });
+    res.json({ message: "Bill deleted" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Get one bill by id
+exports.getBillById = async (req, res) => {
+  try {
+    const bill = await ElectricityBill.findOne({
+      _id: req.params.id,
+      owner: req.user._id,
+    }).populate("tenant", "name mobile");
+
+    if (!bill) return res.status(404).json({ message: "Bill not found" });
+    res.json(bill);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Pending bills - feeds the reminders section
+exports.getPendingBills = async (req, res) => {
+  try {
+    const bills = await ElectricityBill.find({
+      owner: req.user._id,
+      status: "pending",
+    })
+      .populate("tenant", "name mobile")
+      .sort({ forYear: -1, forMonth: -1 });
+
+    res.json(bills);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Latest bill for a tenant - used to auto-fill start unit on the next bill
+exports.getLastBill = async (req, res) => {
+  try {
+    const tenantId = req.query.tenant || req.params.tenantId;
+
+    if (!tenantId) {
+      return res.status(400).json({ message: "Tenant id is required" });
+    }
+
+    const bill = await ElectricityBill.findOne({
+      owner: req.user._id,
+      tenant: tenantId,
+    }).sort({ forYear: -1, forMonth: -1, createdAt: -1 });
+
+    if (!bill) {
+      // No previous bill - app should start from 0
+      return res.json({ lastEndUnit: 0, bill: null });
+    }
+
+    res.json({ lastEndUnit: bill.endUnit || 0, bill });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

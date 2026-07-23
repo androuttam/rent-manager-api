@@ -255,7 +255,7 @@ const getMyReport = async (req, res) => {
 // @desc    Reminders: pending rent tenants + pending electricity bills
 // @route   GET /api/dashboard/reminders
 // @access  Owner
-exports.getReminders = async (req, res) => {
+const getReminders = async (req, res) => {
   try {
     const ownerId = req.user._id;
 
