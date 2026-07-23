@@ -301,7 +301,7 @@ const getReminders = async (req, res) => {
       (s, t) => s + t.pendingRent,
       0
     );
-
+console.log("REMINDERS:", pendingRentTenants.length, pendingBills.length, pendingRentTotal);
     return res.json({
       success: true,
       pendingRentTenants,
