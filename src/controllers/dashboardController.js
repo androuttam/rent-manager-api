@@ -258,13 +258,18 @@ const getMyReport = async (req, res) => {
 // @desc    Reminders: pending rent tenants + pending electricity bills
 // @route   GET /api/dashboard/reminders
 // @access  Owner
+// @desc    Reminders: pending rent tenants + pending electricity bills
+// @route   GET /api/dashboard/reminders
+// @access  Owner
 const getReminders = async (req, res) => {
   try {
     const ownerId = req.user._id;
 
     // ---------- 1. Pending rent ----------
-    const tenants = await Tenant.find({ ownerId, status: "active" });
-    const pendingRentTenants = [];
+    const tenants = await Tenant.find({ ownerId, status: "active" })
+      .populate("flatId", "flatNumber");
+
+    const reminders = [];
 
     for (const t of tenants) {
       if (!t.moveInDate || !t.agreedRent) continue;
@@ -276,11 +281,13 @@ const getReminders = async (req, res) => {
       const due = Math.max(expected - paid, 0);
 
       if (due > 0) {
-        pendingRentTenants.push({
-          _id: t._id,
+        // Keys below must match the Flutter Reminder model
+        reminders.push({
+          tenantId: t._id,
           name: t.name,
           mobile: t.mobile,
-          pendingRent: due,
+          flatNumber: t.flatId ? t.flatId.flatNumber : null,
+          pendingAmount: due,
         });
       }
     }
@@ -293,18 +300,18 @@ const getReminders = async (req, res) => {
       .populate("tenantId", "name mobile")
       .sort({ forYear: -1, forMonth: -1 });
 
+    const pendingRentTotal = reminders.reduce(
+      (s, r) => s + r.pendingAmount,
+      0
+    );
     const pendingBillTotal = pendingBills.reduce(
       (s, b) => s + (b.billAmount || 0),
       0
     );
-    const pendingRentTotal = pendingRentTenants.reduce(
-      (s, t) => s + t.pendingRent,
-      0
-    );
-console.log("REMINDERS:", pendingRentTenants.length, pendingBills.length, pendingRentTotal);
+
     return res.json({
       success: true,
-      pendingRentTenants,
+      reminders,
       pendingRentTotal,
       pendingBills,
       pendingBillTotal,
@@ -313,7 +320,6 @@ console.log("REMINDERS:", pendingRentTenants.length, pendingBills.length, pendin
     return res.status(500).json({ success: false, message: error.message });
   }
 };
-
 module.exports = {
   getSummary,
   getReminders,
