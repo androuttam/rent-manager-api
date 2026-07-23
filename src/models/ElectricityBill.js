@@ -40,7 +40,7 @@ const electricityBillSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
-    amount: {
+    billAmount: {
       type: Number,
       default: 0,
     },
@@ -72,10 +72,10 @@ electricityBillSchema.pre("validate", function (next) {
   }
 
   const rate = Number(this.ratePerUnit) || 0;
-  this.amount = this.unitsUsed * rate;
+  this.billAmount = this.unitsUsed * rate;
 
   if (this.status === "waived") {
-    this.waivedAmount = this.amount;
+    this.waivedAmount = this.billAmount;
   } else {
     this.waivedAmount = 0;
   }

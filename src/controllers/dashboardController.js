@@ -255,26 +255,26 @@ const getMyReport = async (req, res) => {
 // @desc    Reminders: pending rent tenants + pending electricity bills
 // @route   GET /api/dashboard/reminders
 // @access  Owner
+// @desc    Reminders: pending rent tenants + pending electricity bills
+// @route   GET /api/dashboard/reminders
+// @access  Owner
 const getReminders = async (req, res) => {
   try {
     const ownerId = req.user._id;
 
-    // ---------- 1. Pending rent (existing logic) ----------
-    const tenants = await Tenant.find({ owner: ownerId, status: 'active' });
+    // ---------- 1. Pending rent ----------
+    const tenants = await Tenant.find({ ownerId, status: "active" });
     const pendingRentTenants = [];
 
     for (const t of tenants) {
-      const payments = await RentPayment.find({ owner: ownerId, tenantId: t._id });
-      const paid = payments.reduce((s, p) => s + p.amount, 0);
+      if (!t.moveInDate || !t.agreedRent) continue;
 
-      const now = new Date();
-      const moveIn = new Date(t.moveInDate);
-      let months =
-        (now.getFullYear() - moveIn.getFullYear()) * 12 +
-        (now.getMonth() - moveIn.getMonth()) + 1;
-      if (months < 0) months = 0;
+      const payments = await RentPayment.find({ ownerId, tenantId: t._id });
+      const paid = payments.reduce((s, p) => s + (p.amount || 0), 0);
 
-      const due = Math.max(months * t.agreedRent - paid, 0);
+      const expected = monthsElapsed(t.moveInDate) * t.agreedRent;
+      const due = Math.max(expected - paid, 0);
+
       if (due > 0) {
         pendingRentTenants.push({
           _id: t._id,
@@ -285,25 +285,32 @@ const getReminders = async (req, res) => {
       }
     }
 
-    // ---------- 2. Pending electricity bills (NEW) ----------
+    // ---------- 2. Pending electricity bills ----------
     const pendingBills = await ElectricityBill.find({
-      owner: ownerId,
-      status: 'pending',
+      ownerId,
+      status: "pending",
     })
-      .populate('tenantId', 'name mobile')
-      .sort({ billDate: -1 });
+      .populate("tenantId", "name mobile")
+      .sort({ forYear: -1, forMonth: -1 });
 
-    const pendingBillTotal = pendingBills.reduce((s, b) => s + b.amount, 0);
-    const pendingRentTotal = pendingRentTenants.reduce((s, t) => s + t.pendingRent, 0);
+    const pendingBillTotal = pendingBills.reduce(
+      (s, b) => s + (b.billAmount || 0),
+      0
+    );
+    const pendingRentTotal = pendingRentTenants.reduce(
+      (s, t) => s + t.pendingRent,
+      0
+    );
 
-    res.json({
+    return res.json({
+      success: true,
       pendingRentTenants,
       pendingRentTotal,
       pendingBills,
       pendingBillTotal,
     });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
