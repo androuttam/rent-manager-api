@@ -16,12 +16,13 @@ const createBill = async (req, res) => {
     } = req.body;
 
     if (!tenantId) {
-      return res.status(400).json({ message: "Tenant is required" });
+      return res.status(400).json({ success: false, message: "Tenant is required" });
     }
     if (startUnit == null || endUnit == null) {
-      return res
-        .status(400)
-        .json({ message: "Start unit and end unit are required" });
+      return res.status(400).json({
+        success: false,
+        message: "Start unit and end unit are required",
+      });
     }
 
     const bill = await ElectricityBill.create({
@@ -38,9 +39,9 @@ const createBill = async (req, res) => {
     });
 
     await bill.populate("tenantId", "name mobile");
-    res.status(201).json(bill);
-  } catch (err) {
-    res.status(400).json({ message: err.message });
+    return res.status(201).json({ success: true, bill });
+  } catch (error) {
+    return res.status(400).json({ success: false, message: error.message });
   }
 };
 
@@ -58,9 +59,9 @@ const getBills = async (req, res) => {
       .populate("tenantId", "name mobile")
       .sort({ forYear: -1, forMonth: -1, createdAt: -1 });
 
-    res.json(bills);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+    return res.json({ success: true, count: bills.length, bills });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -72,10 +73,12 @@ const getBillById = async (req, res) => {
       ownerId: req.user._id,
     }).populate("tenantId", "name mobile");
 
-    if (!bill) return res.status(404).json({ message: "Bill not found" });
-    res.json(bill);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+    if (!bill) {
+      return res.status(404).json({ success: false, message: "Bill not found" });
+    }
+    return res.json({ success: true, bill });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -85,7 +88,7 @@ const getLastBill = async (req, res) => {
     const tenantId = req.query.tenantId || req.params.tenantId;
 
     if (!tenantId) {
-      return res.status(400).json({ message: "Tenant is required" });
+      return res.status(400).json({ success: false, message: "Tenant is required" });
     }
 
     const bill = await ElectricityBill.findOne({
@@ -93,9 +96,13 @@ const getLastBill = async (req, res) => {
       tenantId,
     }).sort({ forYear: -1, forMonth: -1, createdAt: -1 });
 
-    res.json({ lastEndUnit: bill ? bill.endUnit || 0 : 0, bill: bill || null });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+    return res.json({
+      success: true,
+      lastEndUnit: bill ? bill.endUnit || 0 : 0,
+      bill: bill || null,
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -109,9 +116,9 @@ const getPendingBills = async (req, res) => {
       .populate("tenantId", "name mobile")
       .sort({ forYear: -1, forMonth: -1 });
 
-    res.json(bills);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+    return res.json({ success: true, count: bills.length, bills });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -123,7 +130,9 @@ const updateBill = async (req, res) => {
       ownerId: req.user._id,
     });
 
-    if (!bill) return res.status(404).json({ message: "Bill not found" });
+    if (!bill) {
+      return res.status(404).json({ success: false, message: "Bill not found" });
+    }
 
     const fields = [
       "tenantId",
@@ -143,13 +152,13 @@ const updateBill = async (req, res) => {
 
     bill.paidOn = bill.status === "paid" ? bill.paidOn || new Date() : undefined;
 
-    // pre-validate hook recalculates unitsUsed, amount, waivedAmount
+    // pre-validate hook recalculates unitsUsed, billAmount, waivedAmount
     await bill.save();
     await bill.populate("tenantId", "name mobile");
 
-    res.json(bill);
-  } catch (err) {
-    res.status(400).json({ message: err.message });
+    return res.json({ success: true, bill });
+  } catch (error) {
+    return res.status(400).json({ success: false, message: error.message });
   }
 };
 
@@ -161,15 +170,17 @@ const updateBillStatus = async (req, res) => {
       ownerId: req.user._id,
     });
 
-    if (!bill) return res.status(404).json({ message: "Bill not found" });
+    if (!bill) {
+      return res.status(404).json({ success: false, message: "Bill not found" });
+    }
 
     bill.status = req.body.status;
     bill.paidOn = req.body.status === "paid" ? new Date() : undefined;
     await bill.save();
 
-    res.json(bill);
-  } catch (err) {
-    res.status(400).json({ message: err.message });
+    return res.json({ success: true, bill });
+  } catch (error) {
+    return res.status(400).json({ success: false, message: error.message });
   }
 };
 
@@ -180,10 +191,12 @@ const deleteBill = async (req, res) => {
       ownerId: req.user._id,
     });
 
-    if (!bill) return res.status(404).json({ message: "Bill not found" });
-    res.json({ message: "Bill deleted" });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+    if (!bill) {
+      return res.status(404).json({ success: false, message: "Bill not found" });
+    }
+    return res.json({ success: true, message: "Bill deleted" });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
