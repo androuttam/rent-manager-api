@@ -2,19 +2,19 @@ const mongoose = require("mongoose");
 
 const electricityBillSchema = new mongoose.Schema(
   {
-    owner: {
+    ownerId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
       index: true,
     },
-    tenant: {
+    tenantId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Tenant",
       required: true,
       index: true,
     },
-    flat: {
+    flatId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Flat",
     },
