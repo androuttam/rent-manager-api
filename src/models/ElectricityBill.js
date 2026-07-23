@@ -1,68 +1,98 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
 const electricityBillSchema = new mongoose.Schema(
   {
     owner: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
+      ref: "User",
       required: true,
       index: true,
     },
-    tenantId: {
+    tenant: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Tenant',
+      ref: "Tenant",
       required: true,
       index: true,
     },
-    flatId: {
+    flat: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Flat',
+      ref: "Flat",
     },
-    billDate: { type: Date, default: Date.now },
-    forMonth: { type: Number, min: 1, max: 12 },
-    forYear: { type: Number },
 
-    // New meter reading fields
-    startUnit: { type: Number, required: true, min: 0 },
-    endUnit: { type: Number, required: true, min: 0 },
+    // Meter reading
+    startUnit: {
+      type: Number,
+      required: true,
+      min: 0,
+    },
+    endUnit: {
+      type: Number,
+      required: true,
+      min: 0,
+    },
+    unitsUsed: {
+      type: Number,
+      default: 0,
+    },
 
-    // Auto-calculated: endUnit - startUnit
-    unitsUsed: { type: Number, default: 0, min: 0 },
+    ratePerUnit: {
+      type: Number,
+      required: true,
+      min: 0,
+    },
+    amount: {
+      type: Number,
+      default: 0,
+    },
 
-    ratePerUnit: { type: Number, required: true, min: 0 },
-    amount: { type: Number, default: 0, min: 0 },
+    forMonth: { type: Number, required: true }, // 1-12
+    forYear: { type: Number, required: true },
 
     status: {
       type: String,
-      enum: ['paid', 'waived', 'pending'],
-      default: 'pending',
+      enum: ["paid", "waived", "pending"],
+      default: "pending",
     },
-    waivedAmount: { type: Number, default: 0 },
+    waivedAmount: {
+      type: Number,
+      default: 0,
+    },
+
     paidOn: { type: Date },
-    remarks: { type: String, trim: true },
+    note: { type: String, trim: true },
   },
   { timestamps: true }
 );
 
-// Auto-calculate consumption and amounts before every save
-electricityBillSchema.pre('validate', function (next) {
-  if (this.endUnit < this.startUnit) {
-    return next(new Error('End unit cannot be less than start unit'));
+// Auto-calculate consumption and amount before every save
+electricityBillSchema.pre("validate", function (next) {
+  if (this.endUnit != null && this.startUnit != null) {
+    const used = Number(this.endUnit) - Number(this.startUnit);
+    this.unitsUsed = used > 0 ? used : 0;
   }
 
-  this.unitsUsed = Number((this.endUnit - this.startUnit).toFixed(2));
-  this.amount = Number((this.unitsUsed * this.ratePerUnit).toFixed(2));
+  const rate = Number(this.ratePerUnit) || 0;
+  this.amount = this.unitsUsed * rate;
 
-  // Waived bills are counted as loss to the owner
-  this.waivedAmount = this.status === 'waived' ? this.amount : 0;
-
-  if (this.status !== 'paid') {
-    this.paidOn = undefined;
-  } else if (!this.paidOn) {
-    this.paidOn = new Date();
+  if (this.status === "waived") {
+    this.waivedAmount = this.amount;
+  } else {
+    this.waivedAmount = 0;
   }
 
   next();
 });
 
-module.exports = mongoose.model('ElectricityBill', electricityBillSchema);
+// Block end reading lower than start reading
+electricityBillSchema.pre("validate", function (next) {
+  if (
+    this.startUnit != null &&
+    this.endUnit != null &&
+    Number(this.endUnit) < Number(this.startUnit)
+  ) {
+    return next(new Error("End unit cannot be less than start unit"));
+  }
+  next();
+});
+
+module.exports = mongoose.model("ElectricityBill", electricityBillSchema);

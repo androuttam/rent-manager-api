@@ -1,11 +1,24 @@
 const express = require("express");
 const router = express.Router();
-const { createBill, getBills, updateBill, deleteBill } = require("../controllers/electricityController");
-const { protect, ownerOnly } = require("../middleware/auth");
 
-router.use(protect, ownerOnly);
-router.route("/").post(createBill).get(getBills);
-router.route("/:id").put(updateBill).delete(deleteBill);
-router.get('/last/:tenantId', protect, ownerOnly, getLastBill);
-router.patch('/:id/status', protect, ownerOnly, updateBillStatus);
+const { protect, ownerOnly } = require("../middleware/auth");
+const ctrl = require("../controllers/electricityController");
+
+router.use(protect);
+
+router.get("/pending", ownerOnly, ctrl.getPendingBills);
+
+router
+  .route("/")
+  .get(ctrl.getBills)
+  .post(ownerOnly, ctrl.createBill);
+
+router
+  .route("/:id")
+  .get(ctrl.getBillById)
+  .put(ownerOnly, ctrl.updateBill)
+  .delete(ownerOnly, ctrl.deleteBill);
+
+router.patch("/:id/status", ownerOnly, ctrl.updateBillStatus);
+
 module.exports = router;
